@@ -1,23 +1,47 @@
 import os
 from pathlib import Path
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, WebSocket
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
 # Load environment variables
+from contextlib import asynccontextmanager
+
 env_path = Path(__file__).resolve().parent / ".env"
-load_dotenv(dotenv_path=env_path)
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path)
+else:
+    load_dotenv()
 
 from pipeline import process_text_query
 from live_manager import handle_live_session
+from rag import get_chroma_collection
+from ingest import ingest_policies
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initializes and auto-ingests policy documents into ChromaDB on cold-start (e.g. Render)."""
+    try:
+        col = get_chroma_collection()
+        if col.count() == 0:
+            print("[Startup] ChromaDB collection is empty. Auto-ingesting policy documents...", flush=True)
+            ingest_policies()
+            print(f"[Startup] Ingested {col.count()} policy chunks into ChromaDB.", flush=True)
+        else:
+            print(f"[Startup] ChromaDB collection active with {col.count()} policy chunks.", flush=True)
+    except Exception as err:
+        print(f"[Startup] ChromaDB auto-check note: {err}", flush=True)
+    yield
+
 
 app = FastAPI(
     title="Co-op Mitra — Multilingual Voice Chatbot API",
     description="Backend API for farmers and cooperative societies (SIH 2026)",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Enable CORS for frontend
@@ -67,7 +91,7 @@ async def chat_live_websocket(websocket: WebSocket):
 @app.post("/chat/text", response_model=ChatResponse)
 def chat_text_endpoint(req: TextChatRequest):
     """
-    Text-based grounded RAG chat endpoint.
+    Text-based grounded RAG chat endpoint (Single-turn fallback).
     Retrieves policy documents from ChromaDB and generates a grounded response with LangChain Gemini.
     """
     if not req.message or not req.message.strip():
@@ -80,54 +104,6 @@ def chat_text_endpoint(req: TextChatRequest):
         answer_text=result.get("answer_text", ""),
         sources=result.get("sources", []),
         answer_audio_url=result.get("answer_audio_url"),
-    )
-
-
-@app.post("/chat/audio", response_model=ChatResponse)
-async def chat_audio_endpoint(
-    file: UploadFile = File(...),
-    conversation_id: Optional[str] = Form(None),
-):
-    """
-    Voice-based chat endpoint:
-    1. Sends audio directly to Gemini for native transcription & language detection.
-    2. Retrieves top-k policy documents from ChromaDB.
-    3. LangChain generates grounded answer in detected regional language.
-    4. Synthesizes voice audio via edge-tts/gTTS.
-    """
-    if not file:
-        raise HTTPException(status_code=400, detail="Audio file is required.")
-
-    audio_bytes = await file.read()
-    if not audio_bytes:
-        raise HTTPException(status_code=400, detail="Audio file is empty.")
-
-    mime_type = file.content_type or "audio/webm"
-    result = process_audio_query(audio_bytes, mime_type=mime_type)
-
-    return ChatResponse(
-        transcript=result.get("transcript", ""),
-        detected_language=result.get("detected_language", "English"),
-        answer_text=result.get("answer_text", ""),
-        sources=result.get("sources", []),
-        answer_audio_url=result.get("answer_audio_url"),
-    )
-
-
-@app.get("/audio/{file_id}")
-def get_audio_file(file_id: str):
-    """Serves synthesized TTS audio files to the frontend."""
-    # Sanitize file_id to prevent directory traversal
-    safe_name = Path(file_id).name
-    file_path = AUDIO_OUTPUT_DIR / safe_name
-
-    if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(status_code=404, detail="Audio file not found or expired.")
-
-    return FileResponse(
-        path=str(file_path),
-        media_type="audio/mpeg",
-        filename=safe_name,
     )
 
 

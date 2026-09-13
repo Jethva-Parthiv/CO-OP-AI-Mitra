@@ -15,6 +15,9 @@ logger = logging.getLogger("coop_mitra.live")
 SYSTEM_INSTRUCTION = (
     "You are 'Co-op Mitra' (सहकारी मित्र), a warm, empathetic, and knowledgeable real-time voice assistant "
     "for Indian farmers and Primary Agricultural Credit Societies (PACS) presenting at Smart India Hackathon (SIH 2026).\n\n"
+    "CREATOR INFORMATION:\n"
+    "Your creator and developer is Jethva Parthiv. If anyone asks who created, made, or developed you, "
+    "proudly and respectfully say that you were created by Jethva Parthiv.\n\n"
     "STRICT OPERATIONAL GUIDELINES:\n"
     "1. Detect the user's spoken natural language and ALWAYS speak back in the exact same language "
     "(e.g., Hindi, Gujarati, Marathi, Tamil, Telugu, Bengali, Punjabi, English, etc.).\n"
@@ -111,11 +114,13 @@ async def handle_live_session(websocket: WebSocket):
                 try:
                     while True:
                         msg = await websocket.receive()
+                        if msg.get("type") == "websocket.disconnect":
+                            break
                         if "bytes" in msg and msg["bytes"]:
                             pcm_data = msg["bytes"]
-                            # Forward 16kHz PCM audio chunk to Gemini
+                            # Forward 16kHz PCM audio chunk to Gemini (using audio= parameter)
                             await session.send_realtime_input(
-                                media=types.Blob(
+                                audio=types.Blob(
                                     data=pcm_data,
                                     mime_type="audio/pcm;rate=16000",
                                 )
@@ -129,7 +134,7 @@ async def handle_live_session(websocket: WebSocket):
                                     pcm_data = base64.b64decode(payload.get("data", ""))
                                     if pcm_data:
                                         await session.send_realtime_input(
-                                            media=types.Blob(
+                                            audio=types.Blob(
                                                 data=pcm_data,
                                                 mime_type="audio/pcm;rate=16000",
                                             )
@@ -137,108 +142,121 @@ async def handle_live_session(websocket: WebSocket):
                                 elif ptype == "text":
                                     user_text = payload.get("text", "").strip()
                                     if user_text:
-                                        logger.info(f"[Live] User text input: {user_text}")
+                                        print(f"[Live] User text input: {user_text}", flush=True)
                                         await session.send_realtime_input(text=user_text)
                                 elif ptype == "ping":
                                     await websocket.send_json({"type": "pong"})
                             except json.JSONDecodeError:
                                 pass
                 except (WebSocketDisconnect, asyncio.CancelledError):
-                    logger.info("[Live] Client reader disconnected or cancelled.")
+                    pass
                 except Exception as e:
-                    logger.warning(f"[Live] Exception in client_to_gemini: {e}")
+                    print(f"[Live] Exception in client_to_gemini: {e}", flush=True)
 
-            # Task 2: Forward from Gemini Live session -> client WebSocket
+            # Task 2: Forward from Gemini Live session -> client WebSocket (continuous multi-turn)
             async def gemini_to_client():
                 try:
-                    async for response in session.receive():
-                        # 1. Handle tool calls (RAG Grounding)
-                        if response.tool_call:
-                            await websocket.send_json({"type": "state", "state": "thinking"})
-                            tool_responses = []
+                    while True:
+                        async for response in session.receive():
+                            # 1. Handle tool calls (RAG Grounding)
+                            if response.tool_call:
+                                await websocket.send_json({"type": "state", "state": "thinking"})
+                                tool_responses = []
 
-                            for fc in response.tool_call.function_calls:
-                                if fc.name == "search_policies":
-                                    query_arg = fc.args.get("query", "")
-                                    context_result, sources = execute_policy_search(query_arg)
+                                for fc in response.tool_call.function_calls:
+                                    if fc.name == "search_policies":
+                                        query_arg = fc.args.get("query", "")
+                                        context_result, sources = execute_policy_search(query_arg)
 
-                                    # Notify client about tool execution & sources
+                                        # Notify client about tool execution & sources
+                                        await websocket.send_json({
+                                            "type": "tool_call",
+                                            "name": "search_policies",
+                                            "query": query_arg,
+                                            "sources": sources,
+                                        })
+
+                                        tool_responses.append(
+                                            types.FunctionResponse(
+                                                name=fc.name,
+                                                id=fc.id,
+                                                response={"result": context_result},
+                                            )
+                                        )
+                                    else:
+                                        tool_responses.append(
+                                            types.FunctionResponse(
+                                                name=fc.name,
+                                                id=fc.id,
+                                                response={"error": f"Unknown function {fc.name}"},
+                                            )
+                                        )
+
+                                if tool_responses:
+                                    await session.send_tool_response(function_responses=tool_responses)
+
+                            # 2. Handle server content
+                            sc = response.server_content
+                            if sc:
+                                # Instant barge-in notification
+                                if sc.interrupted:
+                                    print("[Live] Gemini signaled interruption (barge-in).", flush=True)
+                                    await websocket.send_json({"type": "interrupted"})
+                                    await websocket.send_json({"type": "state", "state": "listening"})
+
+                                # Real-time interim user speech transcription (live while speaking)
+                                if sc.interim_input_transcription and sc.interim_input_transcription.text:
                                     await websocket.send_json({
-                                        "type": "tool_call",
-                                        "name": "search_policies",
-                                        "query": query_arg,
-                                        "sources": sources,
+                                        "type": "user_transcription",
+                                        "text": sc.interim_input_transcription.text,
+                                        "is_interim": True,
+                                        "finished": False,
                                     })
 
-                                    tool_responses.append(
-                                        types.FunctionResponse(
-                                            name=fc.name,
-                                            id=fc.id,
-                                            response={"result": context_result},
-                                        )
-                                    )
-                                else:
-                                    tool_responses.append(
-                                        types.FunctionResponse(
-                                            name=fc.name,
-                                            id=fc.id,
-                                            response={"error": f"Unknown function {fc.name}"},
-                                        )
-                                    )
+                                # Final user speech transcription (when user pauses/finishes speaking)
+                                if sc.input_transcription and sc.input_transcription.text:
+                                    await websocket.send_json({
+                                        "type": "user_transcription",
+                                        "text": sc.input_transcription.text,
+                                        "is_interim": False,
+                                        "finished": True,
+                                    })
 
-                            if tool_responses:
-                                await session.send_tool_response(function_responses=tool_responses)
+                                # Assistant speech transcription (incremental delta chunks)
+                                if sc.output_transcription and sc.output_transcription.text:
+                                    await websocket.send_json({
+                                        "type": "assistant_transcription",
+                                        "delta": sc.output_transcription.text,
+                                        "text": sc.output_transcription.text,
+                                        "finished": bool(sc.output_transcription.finished),
+                                    })
 
-                        # 2. Handle server content
-                        sc = response.server_content
-                        if sc:
-                            # Instant barge-in notification
-                            if sc.interrupted:
-                                logger.info("[Live] Gemini signaled interruption (barge-in).")
-                                await websocket.send_json({"type": "interrupted"})
-                                await websocket.send_json({"type": "state", "state": "listening"})
+                                # Model output turn (audio PCM 24kHz or text fallback)
+                                if sc.model_turn:
+                                    for part in sc.model_turn.parts:
+                                        if part.inline_data and part.inline_data.data:
+                                            # Base64 encode 24kHz PCM chunk
+                                            b64_pcm = base64.b64encode(part.inline_data.data).decode("ascii")
+                                            await websocket.send_json({
+                                                "type": "audio",
+                                                "data": b64_pcm,
+                                            })
+                                        elif part.text and not sc.output_transcription:
+                                            # Text fallback only if output_transcription is absent
+                                            await websocket.send_json({
+                                                "type": "assistant_transcription",
+                                                "delta": part.text,
+                                                "text": part.text,
+                                            })
 
-                            # User speech transcription
-                            if sc.input_transcription and sc.input_transcription.text:
-                                await websocket.send_json({
-                                    "type": "user_transcription",
-                                    "text": sc.input_transcription.text,
-                                    "finished": bool(sc.input_transcription.finished),
-                                })
-
-                            # Assistant speech transcription
-                            if sc.output_transcription and sc.output_transcription.text:
-                                await websocket.send_json({
-                                    "type": "assistant_transcription",
-                                    "text": sc.output_transcription.text,
-                                    "finished": bool(sc.output_transcription.finished),
-                                })
-
-                            # Model output turn (audio PCM 24kHz or text)
-                            if sc.model_turn:
-                                for part in sc.model_turn.parts:
-                                    if part.inline_data and part.inline_data.data:
-                                        # Base64 encode 24kHz PCM chunk
-                                        b64_pcm = base64.b64encode(part.inline_data.data).decode("ascii")
-                                        await websocket.send_json({
-                                            "type": "audio",
-                                            "data": b64_pcm,
-                                        })
-                                    if part.text:
-                                        await websocket.send_json({
-                                            "type": "assistant_text",
-                                            "text": part.text,
-                                        })
-
-                            # Turn complete
-                            if sc.turn_complete:
-                                await websocket.send_json({"type": "turn_complete"})
-                                await websocket.send_json({"type": "state", "state": "listening"})
+                                # Turn complete (Gemini finished generation; playback will continue until finished)
+                                if sc.turn_complete:
+                                    await websocket.send_json({"type": "turn_complete"})
 
                 except (WebSocketDisconnect, asyncio.CancelledError):
-                    logger.info("[Live] Gemini reader disconnected or cancelled.")
+                    pass
                 except Exception as e:
-                    logger.error(f"[Live] Exception in gemini_to_client: {e}")
+                    print(f"[Live] Exception in gemini_to_client: {e}", flush=True)
 
             # Run both tasks concurrently until disconnect
             task1 = asyncio.create_task(client_to_gemini())
@@ -250,6 +268,9 @@ async def handle_live_session(websocket: WebSocket):
             )
             for p in pending:
                 p.cancel()
+            for d in done:
+                if not d.cancelled() and d.exception():
+                    print(f"[Live Error in task]: {d.exception()}", flush=True)
 
     except WebSocketDisconnect:
         logger.info("[Live] WebSocket disconnected normally.")

@@ -5,9 +5,8 @@ description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
     "chromadb>=1.5.9",
-    "edge-tts>=7.2.8",
     "fastapi>=0.141.1",
-    "gtts>=2.5.4",
+    "google-genai>=2.23.0",
     "langchain>=1.4.0",
     "langchain-community>=0.4.2",
     "langchain-core>=1.6.3",

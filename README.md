@@ -1,62 +1,43 @@
 # 🌾 Co-op Mitra (सहकारी मित्र)
-### Multilingual Voice Chatbot for Farmers & Cooperative Societies (PACS) — SIH 2026 MVP
+### Real-Time, Interruptible Voice Assistant for Farmers & Cooperative Societies (PACS) — SIH 2026
 
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/Frontend-React_18-61DAFB?logo=react)](https://react.dev)
-[![Gemini](https://img.shields.io/badge/AI-Gemini_2.5_Flash-4285F4?logo=google)](https://aistudio.google.com)
+[![Gemini Live](https://img.shields.io/badge/AI-Gemini_3.1_Flash_Live-4285F4?logo=google)](https://aistudio.google.com)
 [![ChromaDB](https://img.shields.io/badge/VectorDB-ChromaDB-FF6B6B)](https://www.trychroma.com)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
-## 📖 Problem & Solution Summary
+## 📖 Real-Time Voice Conversation (Phone Call Experience)
 
-Indian farmers and Primary Agricultural Credit Society (PACS) members frequently encounter barriers in understanding government agricultural schemes, subsidies, and cooperative regulations due to fragmented information, dense bureaucratic English documents, and low digital literacy. **Co-op Mitra** solves this by offering a zero-friction voice assistant: a farmer simply taps a button, speaks their question naturally in their mother tongue (Hindi, Gujarati, Marathi, Tamil, Telugu, English, etc.), and receives an instant, verified spoken and textual answer in the same language. The answers are strictly grounded in an authoritative government scheme knowledge base to ensure zero hallucination of critical financial and legal terms.
+Unlike traditional turn-based bots ("press button → record → send → wait → play"), **Co-op Mitra** operates as a **live, continuous, interruptible voice conversation** powered by the **Gemini Live API (`gemini-3.1-flash-live-preview`)**.
+
+- **Natural Phone Call Feel**: The farmer toggles "Start conversation" once. The microphone is continuously live.
+- **Native Voice Activity Detection (VAD)**: The model automatically detects when the farmer starts and stops speaking.
+- **Instant Barge-In (Interruption Capability)**: If the farmer cuts in mid-sentence while the assistant is speaking, the model immediately stops speaking, the frontend instantly halts queued audio playback, and the system transitions back to listening within a fraction of a second.
+- **Zero Hallucination with Live RAG Tool-Calling**: While conversing, the Live session autonomously triggers the `search_policies(query)` function tool, querying a local **ChromaDB** store embedded with `gemini-embedding-001` to fetch verified government rules, subsidies, and schemes.
+- **Multilingual Recognition & Generation**: Speaks natively in Hindi, Gujarati, Marathi, Tamil, Telugu, English, and more, responding in the exact language spoken by the farmer.
 
 ---
 
 ## 🏗️ System Architecture
 
 ```
-                    ┌──────────────────────────────────────────────┐
-                    │               FARMER / MEMBER                │
-                    │      (Spoken Voice or Typed Query)           │
-                    └──────────────────────┬───────────────────────┘
-                                           │
-                                           ▼
-                    ┌──────────────────────────────────────────────┐
-                    │            React Frontend (Vite)             │
-                    │  • 4-State TalkButton (Idle/Rec/Proc/Speak)  │
-                    │  • Chat Transcript & Audio Auto-Player       │
-                    │  • Language Detection & Policy Source Pills  │
-                    └──────────────────────┬───────────────────────┘
-                                           │ HTTP POST (/chat/audio, /chat/text)
-                                           ▼
-                    ┌──────────────────────────────────────────────┐
-                    │            FastAPI Backend (`uv`)            │
-                    ├──────────────────────────────────────────────┤
-                    │                                              │
-                    │  1. Native Multimodal Audio Transcription    │
-                    │     └─► Gemini Flash (Direct Audio Input)    │
-                    │                                              │
-                    │  2. Semantic Query Embedding                 │
-                    │     └─► Gemini Embedding (models/embedding-001│
-                    │                                              │
-                    │  3. Local Vector Search                      │
-                    │     └─► ChromaDB Policy Store (Top-k Chunks) │
-                    │                                              │
-                    │  4. Grounded Reasoning & Translation         │
-                    │     └─► LangChain + ChatGoogleGenerativeAI   │
-                    │         (Strictly Grounded, Structured JSON) │
-                    │                                              │
-                    │  5. Regional Neural Voice Synthesis          │
-                    │     └─► edge-tts (Regional Indian Neural)    │
-                    │         + gTTS Fallback Engine               │
-                    └──────────────────────┬───────────────────────┘
-                                           │
-                                           ▼
-                                 Spoken Audio + Transcript
+React (16kHz PCM mic stream) ⇄ WebSocket (WS /chat/live) ⇄ FastAPI ⇄ Gemini Live session (gemini-3.1-flash-live-preview)
+                                                                            │
+                                                                            └─ Function Tool: search_policies(query)
+                                                                                   │
+                                                                                   ▼
+                                                                           ChromaDB Vector Store
+                                                                           (gemini-embedding-001)
 ```
+
+1. **Client Audio Stream**: Web Audio API captures continuous microphone input downsampled to 16kHz 16-bit linear PCM and streams chunks over the WebSocket.
+2. **Gemini Live Session**: Server connects to `client.aio.live.connect(model="gemini-3.1-flash-live-preview")` with function tool declarations and bidirectional audio streaming.
+3. **Mid-Stream RAG Tool Call**: When a policy question is asked, Gemini calls `search_policies` mid-conversation. FastAPI queries ChromaDB and returns verified chunks via `session.send_tool_response()`.
+4. **Real-Time Playback & Barge-In**: Gemini streams raw 24kHz PCM audio back to the frontend. If the user interrupts, Gemini emits `interrupted: true`, and the client instantly purges all scheduled audio buffers (`audioStreamer.stopAndClear()`).
+5. **Fallback Single-Turn Text**: `POST /chat/text` remains available as a reliable backup input method.
 
 ---
 
@@ -82,20 +63,19 @@ uv sync
 cp .env.example .env
 ```
 
-Open `backend/.env` and add your Gemini API key:
+Open `backend/.env` and ensure your Gemini API key is set:
 ```env
 GEMINI_API_KEY=AIzaSy...your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
-EMBEDDING_MODEL=models/embedding-001
+LIVE_MODEL_NAME=gemini-3.1-flash-live-preview
+CHAT_MODEL_NAME=gemini-3.1-flash-lite
+EMBEDDING_MODEL=models/gemini-embedding-001
 CHROMA_PERSIST_DIR=data/chroma_db
 POLICIES_DIR=data/policies
-AUDIO_OUTPUT_DIR=temp_audio
 PORT=8000
 HOST=0.0.0.0
 ```
 
-#### Ingest Policy Documents (Run Once Before First Use)
-Ingest the curated government policy documents into ChromaDB:
+#### Ingest Policy Documents (Run Once)
 ```bash
 uv run python ingest.py
 ```
@@ -104,7 +84,7 @@ uv run python ingest.py
 ```bash
 uv run uvicorn main:app --reload --port 8000
 ```
-Backend will be live at: `http://localhost:8000` (API docs at `http://localhost:8000/docs`).
+Backend will be live at: `http://localhost:8000` (WebSocket endpoint at `ws://localhost:8000/chat/live`).
 
 ---
 
@@ -121,27 +101,16 @@ npm install
 # Start the Vite development server
 npm run dev
 ```
-Open `http://localhost:5173` in your browser to start the conversation!
+Open `http://localhost:5173` in your browser.
 
 ---
 
-## 🎯 Verified Demo Questions (SIH 2026 Presentation)
+## 🎯 Rehearsal & Live Presentation Checklist
 
-Try asking these questions either by voice or using the fallback text input:
-
-| Topic | Sample Question | Grounded Key Answer |
-|---|---|---|
-| **PM-KISAN** | *"What is the annual financial assistance under PM-KISAN?"* | ₹6,000 per year in three equal 4-monthly installments of ₹2,000 via DBT. |
-| **PM-KISAN (Hindi)** | *"पीएम किसान योजना में ₹2000 की किस्त पाने के लिए क्या जरूरी है?"* | ई-केवाईसी (e-KYC), आधार सीडिंग, और राज्य राजस्व विभाग द्वारा भूमि सीडिंग अनिवार्य है। |
-| **KCC Loan** | *"What is the effective interest rate on Kisan Credit Card?"* | 4% per annum for prompt repayment (7% base after 2% subvention, minus 3% prompt incentive). |
-| **PACS Computerization** | *"How does PACS computerization help cooperative farmers?"* | Cloud-based ERP linking PACS to DCCBs, transparent digital audit, and multi-purpose business services (CSCs, fertilizer distribution). |
-| **PMFBY (Crop Loss)** | *"What is the deadline to report crop loss under PM Fasal Bima Yojana?"* | Within **72 hours** of localized calamity to insurance company, bank, or PACS. |
-| **Out-of-Scope Guardrail** | *"Who won the IPL cricket tournament in 2024?"* | The bot will decline politely stating it only has verified government policy records. |
-
----
-
-## ⚠️ Known Limitations (MVP Scope)
-
-- **Seed Knowledge Base**: The MVP is pre-loaded with 6 core agricultural and cooperative policies (`PM-KISAN`, `KCC`, `PMFBY`, `PACS Computerization`, `AIF`, `e-NAM`). Queries outside these policies will be politely declined.
-- **Gemini Free-Tier Rate Limits**: The free tier of Gemini API is subject to RPM (requests-per-minute) thresholds. If rate limits are reached, wait 10 seconds before the next turn.
-- **Browser Audio Permissions**: Direct audio capture requires microphone permissions enabled in the browser (`chrome://settings/content/microphone` or `localhost` permission prompt).
+- [x] **Start Live Conversation**: Click the center button once. State transitions to `listening`.
+- [x] **Speak Naturally**: Ask *"पीएम किसान योजना में सालाना कितनी सहायता मिलती है?"* — model searches ChromaDB and speaks the verified answer directly.
+- [x] **Test Barge-In / Interruption**: Speak while the assistant is talking. The assistant stops immediately and the UI visibly snaps to `listening`.
+- [x] **Regional Language**: Ask in Gujarati, Marathi, or Telugu; answered in the same language.
+- [x] **Out-of-Scope Guardrail**: Ask an irrelevant question (e.g. sports score); model politely explains it only has verified government policy records.
+- [x] **Single-Turn Text Fallback**: Type a question in the bottom input bar to verify the single-turn text fallback.
+- [x] **Reconnect / Reset**: Toggle "End Conversation" or click Reset; socket cleanly cleans up and restarts without memory leaks.

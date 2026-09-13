@@ -176,8 +176,12 @@ class AudioStreamer {
       const startTime = Math.max(now, this.nextPlayTime);
       source.start(startTime);
       this.nextPlayTime = startTime + audioBuffer.duration;
-
       this.scheduledSources.push(source);
+
+      if (this.stopDebounceTimer) {
+        clearTimeout(this.stopDebounceTimer);
+        this.stopDebounceTimer = null;
+      }
 
       if (!this.isPlaying) {
         this.isPlaying = true;
@@ -190,8 +194,16 @@ class AudioStreamer {
           this.scheduledSources.splice(idx, 1);
         }
         if (this.scheduledSources.length === 0) {
-          this.isPlaying = false;
-          this.onPlayEnd?.();
+          if (this.stopDebounceTimer) clearTimeout(this.stopDebounceTimer);
+          // Wait until hardware buffer finishes plus safety margin before switching back to listening
+          const remainingSec = Math.max(0, this.nextPlayTime - (this.outputContext?.currentTime || 0));
+          const debounceMs = Math.max(500, Math.round(remainingSec * 1000) + 200);
+          this.stopDebounceTimer = setTimeout(() => {
+            if (this.scheduledSources.length === 0 && this.isPlaying) {
+              this.isPlaying = false;
+              this.onPlayEnd?.();
+            }
+          }, debounceMs);
         }
       };
     } catch (err) {
@@ -204,6 +216,11 @@ class AudioStreamer {
    * Instantly stops all playing and queued audio nodes and resets timing.
    */
   stopAndClear() {
+    if (this.stopDebounceTimer) {
+      clearTimeout(this.stopDebounceTimer);
+      this.stopDebounceTimer = null;
+    }
+
     for (const source of this.scheduledSources) {
       try {
         source.stop();
