@@ -178,7 +178,33 @@ export default function ChatBubble({ message, onAudioPlayStart, onAudioPlayEnd }
             }}
           >
             {message.text}
+            {message.isStreaming && (
+              <span className="animate-pulse" style={{ display: 'inline-block', marginLeft: '4px' }}>
+                ▍
+              </span>
+            )}
           </div>
+
+          {/* Interrupted Tag */}
+          {!isUser && message.interrupted && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '11px',
+                color: '#d97706',
+                backgroundColor: '#fffbeb',
+                border: '1px solid #fde68a',
+                padding: '2px 8px',
+                borderRadius: '6px',
+                marginTop: '2px',
+                fontWeight: 600,
+              }}
+            >
+              <span>⚡ Interrupted by user • बीच में टोका गया</span>
+            </div>
+          )}
 
           {/* Audio Player Bar (for Assistant responses with audio) */}
           {!isUser && message.answer_audio_url && (

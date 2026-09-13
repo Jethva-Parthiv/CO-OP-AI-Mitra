@@ -1,21 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, RotateCcw, AlertTriangle, CheckCircle, Wifi, Globe, Volume2 } from 'lucide-react';
+import { Send, RotateCcw, AlertTriangle, Globe, Radio } from 'lucide-react';
 import ConversationView from './components/ConversationView';
 import TalkButton from './components/TalkButton';
-import { checkHealth, sendTextMessage, sendAudioMessage, resolveAudioUrl } from './api';
+import { checkHealth, sendTextMessage } from './api';
+import audioStreamer from './utils/audioStreamer';
+
+function getWebSocketUrl(path) {
+  const loc = window.location;
+  const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+  const apiBase = import.meta.env.VITE_API_BASE_URL;
+  if (apiBase) {
+    const parsed = new URL(apiBase, loc.origin);
+    const wsProto = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${wsProto}//${parsed.host}${path}`;
+  }
+  return `${protocol}//${loc.host}${path}`;
+}
 
 export default function App() {
   const [messages, setMessages] = useState([]);
-  const [status, setStatus] = useState('idle'); // 'idle' | 'recording' | 'processing' | 'speaking'
+  const [isLive, setIsLive] = useState(false);
+  const [status, setStatus] = useState('idle'); // 'idle' | 'connecting' | 'listening' | 'thinking' | 'speaking'
   const [inputText, setInputText] = useState('');
   const [lastLanguage, setLastLanguage] = useState(null);
   const [backendHealth, setBackendHealth] = useState({ online: false, keyConfigured: false });
   const [errorMessage, setErrorMessage] = useState(null);
 
-  // Audio recording refs
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const activeAudioRef = useRef(null);
+  const wsRef = useRef(null);
+  const currentUserMsgIdRef = useRef(null);
+  const currentAssistantMsgIdRef = useRef(null);
 
   // Check health on mount
   useEffect(() => {
@@ -35,178 +48,250 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Stop current active playing audio
-  const stopCurrentAudio = () => {
-    if (activeAudioRef.current) {
-      activeAudioRef.current.pause();
-      activeAudioRef.current = null;
-    }
-    if (status === 'speaking') {
-      setStatus('idle');
-    }
-  };
-
-  // Play audio response automatically
-  const playResponseAudio = (audioUrl) => {
-    if (!audioUrl) {
-      setStatus('idle');
-      return;
-    }
-
-    stopCurrentAudio();
-    const fullUrl = resolveAudioUrl(audioUrl);
-    const audio = new Audio(fullUrl);
-    activeAudioRef.current = audio;
-
-    setStatus('speaking');
-
-    audio.onended = () => {
-      setStatus('idle');
-      activeAudioRef.current = null;
+  // AudioStreamer playback state sync
+  useEffect(() => {
+    audioStreamer.onPlayStart = () => {
+      setStatus('speaking');
     };
-
-    audio.onerror = (e) => {
-      console.warn('[Audio Playback Error]:', e);
-      setStatus('idle');
-      activeAudioRef.current = null;
+    audioStreamer.onPlayEnd = () => {
+      setStatus((prev) => (prev === 'speaking' ? 'listening' : prev));
     };
+    return () => {
+      audioStreamer.cleanup();
+    };
+  }, []);
 
-    audio.play().catch((err) => {
-      console.warn('Auto-play blocked by browser policy:', err);
-      setStatus('idle');
-    });
-  };
-
-  // Start microphone recording
-  const handleStartRecording = async () => {
-    stopCurrentAudio();
+  // Start live WebSocket conversation with Gemini Live API
+  const startLiveConversation = async () => {
     setErrorMessage(null);
+    setStatus('connecting');
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setErrorMessage('Microphone access is not supported in this browser.');
+      setStatus('idle');
       return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunksRef.current = [];
+      const wsUrl = getWebSocketUrl('/chat/live');
+      console.log('[Live] Connecting to WebSocket:', wsUrl);
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-      // Detect best supported mime type
-      let mimeType = 'audio/webm;codecs=opus';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
-      }
+      ws.onopen = async () => {
+        console.log('[Live] WebSocket connected. Starting mic capture...');
+        setIsLive(true);
+        setStatus('listening');
 
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
+        try {
+          await audioStreamer.startRecording((pcmChunk) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(pcmChunk);
+            }
+          });
+        } catch (micErr) {
+          console.error('[Live] Microphone capture failed:', micErr);
+          setErrorMessage('Could not start microphone. Please check your browser permissions.');
+          endLiveConversation();
         }
       };
 
-      recorder.onstop = async () => {
-        // Stop all audio tracks to release microphone
-        stream.getTracks().forEach((track) => track.stop());
-
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: recorder.mimeType || 'audio/webm',
-        });
-
-        if (audioBlob.size < 1000) {
-          setStatus('idle');
-          setErrorMessage('Recording was too short. Please hold to speak your question.');
-          return;
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          handleLiveServerEvent(msg);
+        } catch (err) {
+          console.warn('[Live] Non-JSON message from server:', event.data);
         }
-
-        await processAudioSubmission(audioBlob);
       };
 
-      recorder.start();
-      setStatus('recording');
-    } catch (err) {
-      console.error('Microphone error:', err);
-      setStatus('idle');
-      setErrorMessage(
-        'Microphone permission denied or unavailable. Please enable microphone permissions in your browser.'
-      );
-    }
-  };
-
-  // Stop microphone recording and submit
-  const handleStopRecording = () => {
-    if (mediaRecorderRef.current && status === 'recording') {
-      mediaRecorderRef.current.stop();
-      setStatus('processing');
-    }
-  };
-
-  // Submit audio blob to backend
-  const processAudioSubmission = async (audioBlob) => {
-    setStatus('processing');
-    setErrorMessage(null);
-
-    const tempUserMsgId = `user_${Date.now()}`;
-    // Add temporary visual bubble for user speech
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: tempUserMsgId,
-        sender: 'user',
-        text: '🎙️ Spoken question recorded. Transcribing via Gemini...',
-        isVoice: true,
-      },
-    ]);
-
-    try {
-      const response = await sendAudioMessage(audioBlob);
-
-      // Update the user message with transcribed text
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === tempUserMsgId
-            ? {
-                ...msg,
-                text: response.transcript || '(Spoken Audio Question)',
-                detected_language: response.detected_language,
-              }
-            : msg
-        )
-      );
-
-      // Add assistant response
-      const assistantMsg = {
-        id: `asst_${Date.now()}`,
-        sender: 'assistant',
-        text: response.answer_text,
-        detected_language: response.detected_language,
-        sources: response.sources || [],
-        answer_audio_url: response.answer_audio_url,
+      ws.onerror = (err) => {
+        console.error('[Live] WebSocket error:', err);
+        setErrorMessage('Connection error with Gemini Live session. Please try restarting.');
       };
 
-      setMessages((prev) => [...prev, assistantMsg]);
-      setLastLanguage(response.detected_language);
-
-      // Auto-play spoken response
-      if (response.answer_audio_url) {
-        playResponseAudio(response.answer_audio_url);
-      } else {
+      ws.onclose = (event) => {
+        console.log('[Live] WebSocket closed:', event.code, event.reason);
+        audioStreamer.stopRecording();
+        audioStreamer.stopAndClear();
+        setIsLive(false);
         setStatus('idle');
-      }
+        currentUserMsgIdRef.current = null;
+        currentAssistantMsgIdRef.current = null;
+      };
     } catch (err) {
-      console.error('Audio processing error:', err);
-      setErrorMessage(err.message || 'Failed to process voice query.');
+      console.error('[Live] Failed to open WebSocket session:', err);
+      setErrorMessage('Failed to connect to Live session: ' + (err.message || 'Network error'));
       setStatus('idle');
     }
   };
 
-  // Submit typed text message
+  // End live conversation
+  const endLiveConversation = () => {
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch (e) {}
+      wsRef.current = null;
+    }
+    audioStreamer.cleanup();
+    setIsLive(false);
+    setStatus('idle');
+    currentUserMsgIdRef.current = null;
+    currentAssistantMsgIdRef.current = null;
+  };
+
+  const handleToggleConversation = () => {
+    if (isLive) {
+      endLiveConversation();
+    } else {
+      startLiveConversation();
+    }
+  };
+
+  // Handle incoming server events from Gemini Live
+  const handleLiveServerEvent = (msg) => {
+    const type = msg.type;
+
+    if (type === 'session_started') {
+      setStatus('listening');
+    } else if (type === 'audio') {
+      // Streamed 24kHz PCM chunk
+      audioStreamer.enqueueAudioChunk(msg.data);
+    } else if (type === 'interrupted') {
+      // NATIVE BARGE-IN: User spoke while assistant was talking!
+      console.log('[Live] Interruption event received -> Halting playback instantly.');
+      audioStreamer.stopAndClear();
+      setStatus('listening');
+
+      // Mark the active assistant message as interrupted
+      if (currentAssistantMsgIdRef.current) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === currentAssistantMsgIdRef.current
+              ? { ...m, interrupted: true, isStreaming: false }
+              : m
+          )
+        );
+        currentAssistantMsgIdRef.current = null;
+      }
+    } else if (type === 'user_transcription') {
+      // Incremental user transcription
+      const text = msg.text || '';
+      const finished = Boolean(msg.finished);
+
+      if (!currentUserMsgIdRef.current) {
+        const newId = `user_${Date.now()}`;
+        currentUserMsgIdRef.current = newId;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: newId,
+            sender: 'user',
+            text: text,
+            isVoice: true,
+            isStreaming: !finished,
+          },
+        ]);
+      } else {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === currentUserMsgIdRef.current
+              ? { ...m, text: text, isStreaming: !finished }
+              : m
+          )
+        );
+      }
+
+      if (finished) {
+        currentUserMsgIdRef.current = null;
+      }
+    } else if (type === 'assistant_transcription' || type === 'assistant_text') {
+      // Incremental assistant transcription
+      const text = msg.text || '';
+      const finished = Boolean(msg.finished);
+
+      if (!currentAssistantMsgIdRef.current) {
+        const newId = `asst_${Date.now()}`;
+        currentAssistantMsgIdRef.current = newId;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: newId,
+            sender: 'assistant',
+            text: text,
+            isStreaming: !finished,
+            sources: [],
+          },
+        ]);
+      } else {
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id === currentAssistantMsgIdRef.current) {
+              const updatedText =
+                type === 'assistant_transcription'
+                  ? text // transcription gives cumulative utterance
+                  : (m.text || '') + text; // delta text chunk
+              return {
+                ...m,
+                text: updatedText,
+                isStreaming: !finished,
+              };
+            }
+            return m;
+          })
+        );
+      }
+
+      if (finished) {
+        currentAssistantMsgIdRef.current = null;
+      }
+    } else if (type === 'tool_call') {
+      // RAG Grounding Search executed
+      setStatus('thinking');
+      const sources = msg.sources || [];
+      if (currentAssistantMsgIdRef.current && sources.length > 0) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === currentAssistantMsgIdRef.current
+              ? { ...m, sources: Array.from(new Set([...(m.sources || []), ...sources])) }
+              : m
+          )
+        );
+      }
+    } else if (type === 'state') {
+      if (msg.state === 'thinking') {
+        setStatus('thinking');
+      } else if (msg.state === 'listening' && !audioStreamer.isPlaying) {
+        setStatus('listening');
+      }
+    } else if (type === 'turn_complete') {
+      if (currentAssistantMsgIdRef.current) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === currentAssistantMsgIdRef.current
+              ? { ...m, isStreaming: false }
+              : m
+          )
+        );
+        currentAssistantMsgIdRef.current = null;
+      }
+      if (!audioStreamer.isPlaying) {
+        setStatus('listening');
+      }
+    } else if (type === 'error') {
+      setErrorMessage(msg.message || 'An error occurred during the live session.');
+      setStatus('listening');
+    }
+  };
+
+  // Submit typed text message (Reliable single-turn fallback)
   const handleSendText = async (textToSend = null) => {
     const query = (textToSend || inputText).trim();
-    if (!query || status === 'processing') return;
+    if (!query || status === 'thinking' || status === 'connecting') return;
 
-    stopCurrentAudio();
+    // Stop current audio if playing
+    audioStreamer.stopAndClear();
     setErrorMessage(null);
     setInputText('');
 
@@ -216,10 +301,17 @@ export default function App() {
       text: query,
       isVoice: false,
     };
-
     setMessages((prev) => [...prev, userMsg]);
-    setStatus('processing');
 
+    // If live session is active, send text through the live WebSocket
+    if (isLive && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      setStatus('thinking');
+      wsRef.current.send(JSON.stringify({ type: 'text', text: query }));
+      return;
+    }
+
+    // Otherwise use HTTP fallback
+    setStatus('thinking');
     try {
       const response = await sendTextMessage(query);
 
@@ -234,25 +326,26 @@ export default function App() {
 
       setMessages((prev) => [...prev, assistantMsg]);
       setLastLanguage(response.detected_language);
-
-      if (response.answer_audio_url) {
-        playResponseAudio(response.answer_audio_url);
-      } else {
-        setStatus('idle');
-      }
+      setStatus(isLive ? 'listening' : 'idle');
     } catch (err) {
       console.error('Text chat error:', err);
       setErrorMessage(err.message || 'Failed to process query.');
-      setStatus('idle');
+      setStatus(isLive ? 'listening' : 'idle');
     }
   };
 
   const handleResetConversation = () => {
-    stopCurrentAudio();
+    audioStreamer.stopAndClear();
     setMessages([]);
     setLastLanguage(null);
     setErrorMessage(null);
-    setStatus('idle');
+    currentUserMsgIdRef.current = null;
+    currentAssistantMsgIdRef.current = null;
+    if (isLive) {
+      setStatus('listening');
+    } else {
+      setStatus('idle');
+    }
   };
 
   return (
@@ -263,7 +356,7 @@ export default function App() {
         height: '100vh',
         maxWidth: '960px',
         margin: '0 auto',
-        backgroundColor: 'rgba(255, 255, 255, 0.75)',
+        backgroundColor: 'rgba(255, 255, 255, 0.78)',
         boxShadow: 'var(--shadow-xl)',
         position: 'relative',
       }}
@@ -322,19 +415,19 @@ export default function App() {
                   letterSpacing: '0.04em',
                 }}
               >
-                SIH 2026
+                LIVE AUDIO
               </span>
             </div>
             <p style={{ fontSize: '12px', color: 'var(--text-light)', margin: 0 }}>
-              Multilingual Voice Assistant for Farmers & Cooperative Societies
+              Real-Time Interruptible Voice Assistant • Gemini 3.1 Flash Live
             </p>
           </div>
         </div>
 
         {/* Right Status Badges & Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {/* Last Turn Language Badge */}
-          {lastLanguage && (
+          {/* Live Session Active Indicator */}
+          {isLive && (
             <div
               style={{
                 display: 'inline-flex',
@@ -345,8 +438,29 @@ export default function App() {
                 padding: '4px 10px',
                 borderRadius: '20px',
                 fontSize: '12px',
-                fontWeight: 600,
+                fontWeight: 700,
                 border: '1px solid #a7f3d0',
+              }}
+            >
+              <Radio size={13} className="animate-pulse" color="#059669" />
+              <span>Live Session Active</span>
+            </div>
+          )}
+
+          {/* Last Turn Language Badge */}
+          {lastLanguage && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                backgroundColor: '#f8fafc',
+                color: '#334155',
+                padding: '4px 10px',
+                borderRadius: '20px',
+                fontSize: '12px',
+                fontWeight: 600,
+                border: '1px solid #e2e8f0',
               }}
             >
               <Globe size={13} />
@@ -442,7 +556,7 @@ export default function App() {
         messages={messages}
         onSelectPrompt={(text) => handleSendText(text)}
         onAudioPlayStart={() => setStatus('speaking')}
-        onAudioPlayEnd={() => setStatus('idle')}
+        onAudioPlayEnd={() => setStatus(isLive ? 'listening' : 'idle')}
       />
 
       {/* Bottom Voice & Text Interaction Area */}
@@ -455,19 +569,18 @@ export default function App() {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: '16px',
+          gap: '14px',
         }}
       >
-        {/* Large Centered Talk Button */}
+        {/* Real-time Conversation Toggle Button */}
         <TalkButton
+          isLive={isLive}
           status={status}
-          onStartRecording={handleStartRecording}
-          onStopRecording={handleStopRecording}
-          onStopSpeaking={stopCurrentAudio}
+          onToggleConversation={handleToggleConversation}
           disabled={!backendHealth.online}
         />
 
-        {/* Text Input Bar Fallback (Stage reliability) */}
+        {/* Text Input Bar Fallback (Single-turn Stage Reliability) */}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -490,8 +603,8 @@ export default function App() {
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            disabled={status === 'processing' || status === 'recording'}
-            placeholder="Or type in Hindi, Gujarati, English... (मैसेज लिखें)"
+            disabled={status === 'thinking' || status === 'connecting'}
+            placeholder="Single-turn text backup: Type in Hindi, Gujarati, English... (मैसेज लिखें)"
             style={{
               flex: 1,
               border: 'none',
@@ -504,7 +617,7 @@ export default function App() {
           />
           <button
             type="submit"
-            disabled={!inputText.trim() || status === 'processing' || status === 'recording'}
+            disabled={!inputText.trim() || status === 'thinking' || status === 'connecting'}
             aria-label="Send text question"
             style={{
               display: 'flex',
