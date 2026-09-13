@@ -41,10 +41,24 @@ export default function ConversationView({
   onAudioPlayStart,
   onAudioPlayEnd,
 }) {
-  const bottomRef = useRef(null);
+  const containerRef = useRef(null);
+  const isAutoScrollActiveRef = useRef(true);
+
+  const handleScroll = () => {
+    if (!containerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+    // Auto-scroll only if user is already near bottom (within 120px)
+    isAutoScrollActiveRef.current = scrollHeight - scrollTop - clientHeight < 120;
+  };
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (containerRef.current && isAutoScrollActiveRef.current) {
+      requestAnimationFrame(() => {
+        if (containerRef.current && isAutoScrollActiveRef.current) {
+          containerRef.current.scrollTop = containerRef.current.scrollHeight;
+        }
+      });
+    }
   }, [messages]);
 
   if (messages.length === 0) {
@@ -235,6 +249,8 @@ export default function ConversationView({
 
   return (
     <div
+      ref={containerRef}
+      onScroll={handleScroll}
       style={{
         flex: 1,
         overflowY: 'auto',
@@ -251,7 +267,6 @@ export default function ConversationView({
           onAudioPlayEnd={onAudioPlayEnd}
         />
       ))}
-      <div ref={bottomRef} style={{ height: '10px' }} />
     </div>
   );
 }

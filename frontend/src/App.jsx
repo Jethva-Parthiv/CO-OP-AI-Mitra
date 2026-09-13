@@ -14,6 +14,10 @@ function getWebSocketUrl(path) {
     const wsProto = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${wsProto}//${parsed.host}${path}`;
   }
+  // Connect directly to backend port 8000 in dev mode to bypass Node proxy socket drops
+  if (loc.port === '5173') {
+    return `${protocol}//${loc.hostname}:8000${path}`;
+  }
   return `${protocol}//${loc.host}${path}`;
 }
 
@@ -176,9 +180,10 @@ export default function App() {
         currentAssistantMsgIdRef.current = null;
       }
     } else if (type === 'user_transcription') {
-      // Incremental user transcription
-      const text = msg.text || '';
+      // User speech transcription (live interim hypothesis or final recognized text)
+      const incoming = (msg.text || '').trim();
       const finished = Boolean(msg.finished);
+      if (!incoming) return;
 
       if (!currentUserMsgIdRef.current) {
         const newId = `user_${Date.now()}`;
@@ -188,7 +193,7 @@ export default function App() {
           {
             id: newId,
             sender: 'user',
-            text: text,
+            text: incoming,
             isVoice: true,
             isStreaming: !finished,
           },
@@ -197,7 +202,7 @@ export default function App() {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === currentUserMsgIdRef.current
-              ? { ...m, text: text, isStreaming: !finished }
+              ? { ...m, text: incoming, isStreaming: !finished }
               : m
           )
         );
@@ -207,9 +212,9 @@ export default function App() {
         currentUserMsgIdRef.current = null;
       }
     } else if (type === 'assistant_transcription' || type === 'assistant_text') {
-      // Incremental assistant transcription
-      const text = msg.text || '';
-      const finished = Boolean(msg.finished);
+      // Incremental assistant speech transcription (streamed delta text)
+      const delta = msg.delta !== undefined ? msg.delta : (msg.text || '');
+      if (!delta) return;
 
       if (!currentAssistantMsgIdRef.current) {
         const newId = `asst_${Date.now()}`;
@@ -219,32 +224,23 @@ export default function App() {
           {
             id: newId,
             sender: 'assistant',
-            text: text,
-            isStreaming: !finished,
+            text: delta,
+            isStreaming: true,
             sources: [],
           },
         ]);
       } else {
         setMessages((prev) =>
-          prev.map((m) => {
-            if (m.id === currentAssistantMsgIdRef.current) {
-              const updatedText =
-                type === 'assistant_transcription'
-                  ? text // transcription gives cumulative utterance
-                  : (m.text || '') + text; // delta text chunk
-              return {
-                ...m,
-                text: updatedText,
-                isStreaming: !finished,
-              };
-            }
-            return m;
-          })
+          prev.map((m) =>
+            m.id === currentAssistantMsgIdRef.current
+              ? {
+                  ...m,
+                  text: m.text + delta,
+                  isStreaming: true,
+                }
+              : m
+          )
         );
-      }
-
-      if (finished) {
-        currentAssistantMsgIdRef.current = null;
       }
     } else if (type === 'tool_call') {
       // RAG Grounding Search executed

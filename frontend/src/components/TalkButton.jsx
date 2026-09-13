@@ -128,33 +128,34 @@ export default function TalkButton({
         </button>
       </div>
 
-      {/* Dynamic Status Text & Subtitle */}
-      <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-        {!isLive && status !== 'connecting' && (
-          <>
+      {/* Dynamic Status Text & Subtitle - Fixed slot heights prevent any layout fluctuation */}
+      <div
+        style={{
+          textAlign: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '4px',
+          minHeight: '86px',
+        }}
+      >
+        {/* Title Slot (Fixed height: 24px) */}
+        <div style={{ height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          {!isLive && status !== 'connecting' && (
             <span style={{ fontSize: '16px', fontWeight: 700, color: 'var(--primary)' }}>
               लाइव बातचीत शुरू करें • Start Live Conversation
             </span>
-            <span style={{ fontSize: '12px', color: 'var(--text-light)' }}>
-              Continuous, real-time voice call with instant barge-in (कटौती सक्षम)
-            </span>
-          </>
-        )}
+          )}
 
-        {status === 'connecting' && (
-          <>
+          {status === 'connecting' && (
             <span style={{ fontSize: '15px', fontWeight: 700, color: '#d97706' }}>
               Gemini Live सत्र शुरू हो रहा है... • Connecting to Gemini Live
             </span>
-            <span style={{ fontSize: '12px', color: 'var(--text-light)' }}>
-              Opening persistent full-duplex audio stream
-            </span>
-          </>
-        )}
+          )}
 
-        {isLive && status === 'listening' && (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {isLive && status === 'listening' && (
+            <>
               <span
                 style={{
                   width: '9px',
@@ -167,16 +168,11 @@ export default function TalkButton({
               <span style={{ fontSize: '16px', fontWeight: 700, color: '#047857' }}>
                 सुन रहे हैं • Listening...
               </span>
-            </div>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Speak freely in Hindi, Gujarati, Tamil, Telugu, Marathi, English — no tapping needed
-            </span>
-          </>
-        )}
+            </>
+          )}
 
-        {isLive && status === 'thinking' && (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {isLive && status === 'thinking' && (
+            <>
               <span
                 style={{
                   width: '9px',
@@ -189,66 +185,93 @@ export default function TalkButton({
               <span style={{ fontSize: '16px', fontWeight: 700, color: '#b45309' }}>
                 नीति जांच रहे हैं • Thinking & Querying Policies...
               </span>
-            </div>
-            <span style={{ fontSize: '12px', color: 'var(--text-light)' }}>
-              Retrieving verified rules from ChromaDB knowledge base
-            </span>
-          </>
-        )}
+            </>
+          )}
 
-        {isLive && status === 'speaking' && (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {isLive && status === 'speaking' && (
+            <>
               <Volume2 size={18} color="#059669" />
               <span style={{ fontSize: '16px', fontWeight: 700, color: '#059669' }}>
                 उत्तर सुना रहे हैं • Speaking Response
               </span>
-            </div>
+            </>
+          )}
+        </div>
+
+        {/* Subtitle / Tip Slot (Fixed height: 22px) */}
+        <div style={{ height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {!isLive && status !== 'connecting' && (
+            <span style={{ fontSize: '12px', color: 'var(--text-light)' }}>
+              Continuous, real-time voice call with instant barge-in (कटौती सक्षम)
+            </span>
+          )}
+
+          {status === 'connecting' && (
+            <span style={{ fontSize: '12px', color: 'var(--text-light)' }}>
+              Opening persistent full-duplex audio stream
+            </span>
+          )}
+
+          {isLive && status === 'listening' && (
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              Speak freely in Hindi, Gujarati, English — no tapping needed
+            </span>
+          )}
+
+          {isLive && status === 'thinking' && (
+            <span style={{ fontSize: '12px', color: 'var(--text-light)' }}>
+              Retrieving verified rules from ChromaDB knowledge base
+            </span>
+          )}
+
+          {isLive && status === 'speaking' && (
             <span
               style={{
-                fontSize: '12px',
+                fontSize: '11px',
                 color: '#065f46',
                 backgroundColor: '#ecfdf5',
                 padding: '2px 8px',
                 borderRadius: '10px',
                 fontWeight: 600,
+                border: '1px solid #a7f3d0',
               }}
             >
               💡 Speak anytime to interrupt (बीच में कभी भी बोल सकते हैं)
             </span>
-          </>
-        )}
+          )}
+        </div>
 
-        {/* End Call Button when live session is active */}
-        {isLive && (
-          <button
-            onClick={onToggleConversation}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              backgroundColor: '#fee2e2',
-              color: '#b91c1c',
-              border: '1px solid #fca5a5',
-              borderRadius: '20px',
-              padding: '5px 14px',
-              fontSize: '12px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              marginTop: '6px',
-              transition: 'all 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#fecaca';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#fee2e2';
-            }}
-          >
-            <PhoneOff size={13} />
-            <span>End Conversation • बातचीत समाप्त करें</span>
-          </button>
-        )}
+        {/* Action Button Slot (Fixed height: 32px) */}
+        <div style={{ height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {isLive && (
+            <button
+              onClick={onToggleConversation}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                backgroundColor: '#fee2e2',
+                color: '#b91c1c',
+                border: '1px solid #fca5a5',
+                borderRadius: '20px',
+                padding: '4px 14px',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#fecaca';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#fee2e2';
+              }}
+            >
+              <PhoneOff size={13} />
+              <span>End Conversation • बातचीत समाप्त करें</span>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
