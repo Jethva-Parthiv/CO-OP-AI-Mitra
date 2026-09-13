@@ -1,8 +1,9 @@
 import os
 from pathlib import Path
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -10,7 +11,8 @@ from dotenv import load_dotenv
 env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-from pipeline import process_text_query
+from pipeline import process_text_query, process_audio_query
+from tts import AUDIO_OUTPUT_DIR
 
 app = FastAPI(
     title="Co-op Mitra — Multilingual Voice Chatbot API",
@@ -68,6 +70,54 @@ def chat_text_endpoint(req: TextChatRequest):
         answer_text=result.get("answer_text", ""),
         sources=result.get("sources", []),
         answer_audio_url=result.get("answer_audio_url"),
+    )
+
+
+@app.post("/chat/audio", response_model=ChatResponse)
+async def chat_audio_endpoint(
+    file: UploadFile = File(...),
+    conversation_id: Optional[str] = Form(None),
+):
+    """
+    Voice-based chat endpoint:
+    1. Sends audio directly to Gemini for native transcription & language detection.
+    2. Retrieves top-k policy documents from ChromaDB.
+    3. LangChain generates grounded answer in detected regional language.
+    4. Synthesizes voice audio via edge-tts/gTTS.
+    """
+    if not file:
+        raise HTTPException(status_code=400, detail="Audio file is required.")
+
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Audio file is empty.")
+
+    mime_type = file.content_type or "audio/webm"
+    result = process_audio_query(audio_bytes, mime_type=mime_type)
+
+    return ChatResponse(
+        transcript=result.get("transcript", ""),
+        detected_language=result.get("detected_language", "English"),
+        answer_text=result.get("answer_text", ""),
+        sources=result.get("sources", []),
+        answer_audio_url=result.get("answer_audio_url"),
+    )
+
+
+@app.get("/audio/{file_id}")
+def get_audio_file(file_id: str):
+    """Serves synthesized TTS audio files to the frontend."""
+    # Sanitize file_id to prevent directory traversal
+    safe_name = Path(file_id).name
+    file_path = AUDIO_OUTPUT_DIR / safe_name
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Audio file not found or expired.")
+
+    return FileResponse(
+        path=str(file_path),
+        media_type="audio/mpeg",
+        filename=safe_name,
     )
 
 
