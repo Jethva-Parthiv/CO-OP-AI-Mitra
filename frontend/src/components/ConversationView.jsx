@@ -64,6 +64,7 @@ export default function ConversationView({
   if (messages.length === 0) {
     return (
       <div
+        className="welcome-screen"
         style={{
           display: 'flex',
           flexDirection: 'column',
@@ -92,6 +93,7 @@ export default function ConversationView({
         </div>
 
         <h2
+          className="welcome-title"
           style={{
             fontFamily: 'var(--font-heading)',
             fontSize: '26px',
@@ -105,6 +107,7 @@ export default function ConversationView({
         </h2>
 
         <p
+          className="welcome-desc"
           style={{
             fontSize: '15px',
             color: 'var(--text-muted)',
@@ -185,6 +188,7 @@ export default function ConversationView({
           </div>
 
           <div
+            className="prompt-chips-grid"
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',

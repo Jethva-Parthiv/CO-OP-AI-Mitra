@@ -346,6 +346,7 @@ export default function App() {
 
   return (
     <div
+      className="app-container"
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -359,6 +360,7 @@ export default function App() {
     >
       {/* Top Header */}
       <header
+        className="app-header"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -370,8 +372,9 @@ export default function App() {
           zIndex: 10,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div
+            className="app-header-logo"
             style={{
               width: '42px',
               height: '42px',
@@ -382,46 +385,50 @@ export default function App() {
               justifyContent: 'center',
               fontSize: '22px',
               boxShadow: 'var(--shadow-sm)',
+              flexShrink: 0,
             }}
           >
             🌾
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <h1
+                className="app-header-title"
                 style={{
                   fontFamily: 'var(--font-heading)',
                   fontSize: '18px',
                   fontWeight: 700,
                   color: 'var(--primary)',
                   margin: 0,
+                  lineHeight: 1.2,
                 }}
               >
                 सहकारी मित्र • Co-op Mitra
               </h1>
               <span
                 style={{
-                  fontSize: '10px',
-                  fontWeight: 700,
+                  fontSize: '9px',
+                  fontWeight: 800,
                   backgroundColor: '#fef3c7',
                   color: '#b45309',
-                  padding: '2px 6px',
+                  padding: '1px 5px',
                   borderRadius: '4px',
                   border: '1px solid #fde68a',
                   letterSpacing: '0.04em',
+                  whiteSpace: 'nowrap',
                 }}
               >
-                LIVE AUDIO
+                LIVE
               </span>
             </div>
-            <p style={{ fontSize: '12px', color: 'var(--text-light)', margin: 0 }}>
+            <p className="app-header-subtitle" style={{ fontSize: '12px', color: 'var(--text-light)', margin: 0 }}>
               Real-Time Interruptible Voice Assistant • Gemini 3.1 Flash Live
             </p>
           </div>
         </div>
 
         {/* Right Status Badges & Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {/* Live Session Active Indicator */}
           {isLive && (
             <div
@@ -431,7 +438,7 @@ export default function App() {
                 gap: '5px',
                 backgroundColor: '#ecfdf5',
                 color: '#065f46',
-                padding: '4px 10px',
+                padding: '4px 8px',
                 borderRadius: '20px',
                 fontSize: '12px',
                 fontWeight: 700,
@@ -439,7 +446,7 @@ export default function App() {
               }}
             >
               <Radio size={13} className="animate-pulse" color="#059669" />
-              <span>Live Session Active</span>
+              <span className="app-badge-text">Live Session Active</span>
             </div>
           )}
 
@@ -449,10 +456,10 @@ export default function App() {
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '5px',
+                gap: '4px',
                 backgroundColor: '#f8fafc',
                 color: '#334155',
-                padding: '4px 10px',
+                padding: '4px 8px',
                 borderRadius: '20px',
                 fontSize: '12px',
                 fontWeight: 600,
@@ -472,7 +479,7 @@ export default function App() {
               gap: '6px',
               backgroundColor: backendHealth.online ? '#f0fdf4' : '#fef2f2',
               color: backendHealth.online ? '#15803d' : '#b91c1c',
-              padding: '4px 10px',
+              padding: '4px 8px',
               borderRadius: '20px',
               fontSize: '12px',
               fontWeight: 600,
@@ -487,7 +494,7 @@ export default function App() {
                 backgroundColor: backendHealth.online ? '#16a34a' : '#dc2626',
               }}
             />
-            <span>{backendHealth.online ? 'Backend Online' : 'Connecting...'}</span>
+            <span className="app-badge-text">{backendHealth.online ? 'Backend Online' : 'Connecting...'}</span>
           </div>
 
           {/* Reset Button */}
@@ -557,15 +564,16 @@ export default function App() {
 
       {/* Bottom Voice & Text Interaction Area */}
       <footer
+        className="app-footer"
         style={{
           borderTop: '1px solid var(--card-border)',
           backgroundColor: 'rgba(255, 255, 255, 0.96)',
           backdropFilter: 'blur(10px)',
-          padding: '18px 20px 22px 20px',
+          padding: '16px 20px 20px 20px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: '14px',
+          gap: '12px',
         }}
       >
         {/* Real-time Conversation Toggle Button */}
@@ -578,6 +586,7 @@ export default function App() {
 
         {/* Text Input Bar Fallback (Single-turn Stage Reliability) */}
         <form
+          className="app-input-form"
           onSubmit={(e) => {
             e.preventDefault();
             handleSendText();
@@ -596,11 +605,12 @@ export default function App() {
           }}
         >
           <input
+            className="app-input-field"
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             disabled={status === 'thinking' || status === 'connecting'}
-            placeholder="Single-turn text backup: Type in Hindi, Gujarati, English... (मैसेज लिखें)"
+            placeholder="Type in Hindi, Gujarati, English... (मैसेज लिखें)"
             style={{
               flex: 1,
               border: 'none',

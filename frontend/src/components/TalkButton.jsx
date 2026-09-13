@@ -28,7 +28,7 @@ export default function TalkButton({
         {/* Animated Rings for Active States */}
         {isLive && status === 'listening' && (
           <div
-            className="recording-pulse"
+            className="recording-pulse talk-button-pulse"
             style={{
               position: 'absolute',
               width: '105px',
@@ -42,7 +42,7 @@ export default function TalkButton({
 
         {isLive && status === 'thinking' && (
           <div
-            className="recording-pulse"
+            className="recording-pulse talk-button-pulse"
             style={{
               position: 'absolute',
               width: '105px',
@@ -56,7 +56,7 @@ export default function TalkButton({
 
         {isLive && status === 'speaking' && (
           <div
-            className="recording-pulse"
+            className="recording-pulse talk-button-pulse"
             style={{
               position: 'absolute',
               width: '110px',
@@ -69,6 +69,7 @@ export default function TalkButton({
         )}
 
         <button
+          className="talk-button-main"
           onClick={handleClick}
           disabled={disabled || status === 'connecting'}
           aria-label={isLive ? 'End live conversation' : 'Start live conversation'}
@@ -130,6 +131,7 @@ export default function TalkButton({
 
       {/* Dynamic Status Text & Subtitle - Fixed slot heights prevent any layout fluctuation */}
       <div
+        className="talk-status-container"
         style={{
           textAlign: 'center',
           display: 'flex',

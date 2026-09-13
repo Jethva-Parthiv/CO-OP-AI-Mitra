@@ -126,3 +126,101 @@ body {
 .sound-bar:nth-child(3) { animation-delay: 0.5s; }
 .sound-bar:nth-child(4) { animation-delay: 0.2s; }
 .sound-bar:nth-child(5) { animation-delay: 0.4s; }
+
+/* =========================================================
+   Mobile Responsiveness Improvements (Screen width <= 640px)
+   ========================================================= */
+@media (max-width: 640px) {
+  /* App outer wrapper */
+  .app-container {
+    height: 100dvh !important;
+    max-width: 100% !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* Compact Header */
+  .app-header {
+    padding: 10px 12px !important;
+    gap: 8px !important;
+  }
+  .app-header-logo {
+    width: 34px !important;
+    height: 34px !important;
+    font-size: 18px !important;
+    border-radius: 8px !important;
+  }
+  .app-header-title {
+    font-size: 15px !important;
+  }
+  .app-header-subtitle {
+    display: none !important;
+  }
+  .app-badge-text {
+    display: none !important;
+  }
+
+  /* Welcome Screen */
+  .welcome-screen {
+    padding: 20px 12px !important;
+    min-height: auto !important;
+  }
+  .welcome-title {
+    font-size: 20px !important;
+  }
+  .welcome-desc {
+    font-size: 13px !important;
+    margin-bottom: 18px !important;
+  }
+  .prompt-chips-grid {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+  /* Chat Bubbles */
+  .chat-bubble-row {
+    max-width: 95% !important;
+    gap: 8px !important;
+  }
+  .chat-bubble-avatar {
+    width: 32px !important;
+    height: 32px !important;
+  }
+  .chat-bubble-card {
+    padding: 10px 13px !important;
+    font-size: 14px !important;
+    line-height: 1.5 !important;
+  }
+
+  /* Bottom Interaction Area */
+  .app-footer {
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px)) 12px !important;
+    gap: 8px !important;
+  }
+  .talk-button-main {
+    width: 74px !important;
+    height: 74px !important;
+  }
+  .talk-button-pulse {
+    width: 90px !important;
+    height: 90px !important;
+  }
+  .talk-status-container {
+    min-height: 76px !important;
+  }
+  .talk-status-title {
+    font-size: 14px !important;
+  }
+  .talk-status-subtitle {
+    font-size: 11px !important;
+  }
+
+  /* Text fallback input */
+  .app-input-form {
+    padding: 3px 5px !important;
+  }
+  .app-input-field {
+    padding: 8px 10px !important;
+    font-size: 13px !important;
+  }
+}

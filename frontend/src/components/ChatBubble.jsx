@@ -61,6 +61,7 @@ export default function ChatBubble({ message, onAudioPlayStart, onAudioPlayEnd }
       }}
     >
       <div
+        className="chat-bubble-row"
         style={{
           display: 'flex',
           flexDirection: isUser ? 'row-reverse' : 'row',
@@ -71,6 +72,7 @@ export default function ChatBubble({ message, onAudioPlayStart, onAudioPlayEnd }
       >
         {/* Avatar Icon */}
         <div
+          className="chat-bubble-avatar"
           style={{
             width: '38px',
             height: '38px',
@@ -90,6 +92,7 @@ export default function ChatBubble({ message, onAudioPlayStart, onAudioPlayEnd }
 
         {/* Message Content Card */}
         <div
+          className="chat-bubble-card"
           style={{
             display: 'flex',
             flexDirection: 'column',
