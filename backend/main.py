@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -11,8 +11,8 @@ from dotenv import load_dotenv
 env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-from pipeline import process_text_query, process_audio_query
-from tts import AUDIO_OUTPUT_DIR
+from pipeline import process_text_query
+from live_manager import handle_live_session
 
 app = FastAPI(
     title="Co-op Mitra — Multilingual Voice Chatbot API",
@@ -52,6 +52,16 @@ def health_check():
         "service": "co-op-mitra-backend",
         "gemini_api_key_configured": api_key_set,
     }
+
+
+@app.websocket("/chat/live")
+async def chat_live_websocket(websocket: WebSocket):
+    """
+    Real-time, bidirectional voice streaming endpoint powered by Gemini Live API (gemini-3.1-flash-live-preview).
+    Streams 16kHz PCM from browser, executes search_policies tool via ChromaDB,
+    and streams 24kHz audio + native barge-in events back to the client.
+    """
+    await handle_live_session(websocket)
 
 
 @app.post("/chat/text", response_model=ChatResponse)

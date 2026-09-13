@@ -5,8 +5,13 @@ import chromadb
 from chromadb.config import Settings
 from dotenv import load_dotenv
 
+# Load environment variables from backend/.env or root .env
 env_path = Path(__file__).resolve().parent / ".env"
-load_dotenv(dotenv_path=env_path)
+parent_env = Path(__file__).resolve().parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path)
+if parent_env.exists():
+    load_dotenv(dotenv_path=parent_env)
 
 COLLECTION_NAME = "coop_policy_collection"
 BASE_DIR = Path(__file__).resolve().parent
@@ -15,11 +20,11 @@ CHROMA_DIR = BASE_DIR / os.getenv("CHROMA_PERSIST_DIR", "data/chroma_db")
 
 def get_api_key() -> str:
     """Retrieve Gemini API key from environment."""
-    key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not key:
+    key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if not key or "your_gemini_api_key_here" in key:
         raise ValueError(
-            "GEMINI_API_KEY is not set in environment or backend/.env file. "
-            "Please add your free Gemini API key to proceed."
+            "GEMINI_API_KEY / GOOGLE_API_KEY is not set. "
+            "Please add your Gemini API key in .env or backend/.env"
         )
     return key
 
@@ -29,8 +34,8 @@ def get_embedding_client():
     from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
     api_key = get_api_key()
-    # Preferred embedding model from user requirements
-    model_name = os.getenv("EMBEDDING_MODEL", "models/embedding-001")
+    # Preferred embedding model from user requirements: gemini-embedding-001
+    model_name = os.getenv("EMBEDDING_MODEL", os.getenv("GEMINI_EMBEDDING_MODEL_NAME", "models/gemini-embedding-001"))
     return GoogleGenerativeAIEmbeddings(
         model=model_name,
         google_api_key=api_key,

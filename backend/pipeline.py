@@ -21,7 +21,12 @@ from rag import get_api_key, query_chroma
 from tts import generate_tts_audio
 
 BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(dotenv_path=BASE_DIR / ".env")
+env_path = BASE_DIR / ".env"
+parent_env = BASE_DIR.parent / ".env"
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path)
+if parent_env.exists():
+    load_dotenv(dotenv_path=parent_env)
 
 
 class QueryAnswerOutput(BaseModel):
@@ -45,7 +50,8 @@ class AudioTranscriptionOutput(BaseModel):
 def get_llm():
     """Initializes LangChain ChatGoogleGenerativeAI instance."""
     api_key = get_api_key()
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    # Preferred model from master prompt: gemini-3.1-flash-lite
+    model_name = os.getenv("CHAT_MODEL_NAME") or os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite"
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
@@ -95,7 +101,7 @@ def transcribe_and_detect_audio(audio_bytes: bytes, mime_type: str = "audio/webm
     Fallback: Google GenAI SDK if LangChain encounters any multimodal formatting error.
     """
     api_key = get_api_key()
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    model_name = os.getenv("CHAT_MODEL_NAME") or os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite"
     b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
 
     prompt_text = (
